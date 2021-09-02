@@ -13,6 +13,7 @@ export default {
     selection:                 'hammerhead|selection',
     shadowUIElement:           'hammerhead|shadow-ui-element',
     forceProxySrcForImage:     'hammerhead|image|force-proxy-src-flag',
+    forceProxySrcSetForImage:  'hammerhead|image|force-proxy-srcset-flag',
     skipNextLoadEventForImage: 'hammerhead|image|skip-next-load-event-flag',
     cachedImage:               'hammerhead|image|cached-image',
     sandboxIsReattached:       'hammerhead|sandbox-is-reattached',

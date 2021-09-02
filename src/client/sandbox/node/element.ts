@@ -91,6 +91,41 @@ export default class ElementSandbox extends SandboxBase {
         img[INTERNAL_PROPS.skipNextLoadEventForImage] = skipNextLoadEvent;
     }
 
+    private static _setProxiedSrcSet (img: HTMLImageElement): void {
+        if (img[INTERNAL_PROPS.forceProxySrcSetForImage]) {
+            return;
+        }
+
+        const imgSrcSet = nativeMethods.imageSrcSetGetter.call(img);
+
+        if (!imgSrcSet) {
+            return;
+        }
+
+        const split        = imgSrcSet.split(',');
+        const parsedSrcSet = [];
+
+        for (let i = 0; i < split.length; i++) {
+            parsedSrcSet.push(split[i].trim().split(' '));
+        }
+
+        const skipNextLoadEvent = !!imgSrcSet && img.complete && !img[INTERNAL_PROPS.cachedImage];
+
+        img[INTERNAL_PROPS.forceProxySrcSetForImage] = true;
+
+        if (imgSrcSet) {
+            const newSrcSet = [];
+
+            for (let i = 0; i < parsedSrcSet.length; i++) {
+                newSrcSet.push(parsedSrcSet[i].join(' '));
+            }
+
+            img.setAttribute('srcset', newSrcSet.join(','));
+        }
+
+        img[INTERNAL_PROPS.skipNextLoadEventForImage] = skipNextLoadEvent;
+    }
+
     getAttributeCore (el: HTMLElement, args, isNs?: boolean) {
         const attr        = String(args[isNs ? 1 : 0]);
         const loweredAttr = attr.toLowerCase();
@@ -995,15 +1030,19 @@ export default class ElementSandbox extends SandboxBase {
         // If img has the 'load' event handler, we redirect the request through proxy.
         // For details, see https://github.com/DevExpress/testcafe-hammerhead/issues/651
         this._eventSandbox.listeners.on(this._eventSandbox.listeners.EVENT_LISTENER_ATTACHED_EVENT, e => {
-            if (e.eventType === 'load' && domUtils.isImgElement(e.el))
+            if (e.eventType === 'load' && domUtils.isImgElement(e.el)) {
                 ElementSandbox._setProxiedSrc(e.el);
+                ElementSandbox._setProxiedSrcSet(e.el);
+            }
         });
 
         overrideDescriptor(window.HTMLElement.prototype, 'onload', {
             getter: null,
             setter: function (handler) {
-                if (domUtils.isImgElement(this) && isValidEventListener(handler))
+                if (domUtils.isImgElement(this) && isValidEventListener(handler)) {
                     ElementSandbox._setProxiedSrc(this);
+                    ElementSandbox._setProxiedSrcSet(this);
+                }
 
                 nativeMethods.htmlElementOnloadSetter.call(this, handler);
             }
@@ -1042,12 +1081,37 @@ export default class ElementSandbox extends SandboxBase {
 
     private _setProxiedSrcUrlOnError (img: HTMLImageElement): void {
         img.addEventListener('error', e => {
-            const storedAttr = nativeMethods.getAttribute.call(img, DomProcessor.getStoredAttrName('src'));
-            const imgSrc     = nativeMethods.imageSrcGetter.call(img);
+            const storedSrc = nativeMethods.getAttribute.call(img, DomProcessor.getStoredAttrName('src'));
+            const imgSrc    = nativeMethods.imageSrcGetter.call(img);
 
-            if (storedAttr && !urlUtils.parseProxyUrl(imgSrc) &&
+            if (storedSrc && !urlUtils.parseProxyUrl(imgSrc) &&
                 urlUtils.isSupportedProtocol(imgSrc) && !urlUtils.isSpecialPage(imgSrc)) {
-                nativeMethods.setAttribute.call(img, 'src', urlUtils.getProxyUrl(storedAttr));
+                nativeMethods.setAttribute.call(img, 'src', urlUtils.getProxyUrl(storedSrc));
+                stopPropagation(e);
+            }
+
+            const storedSrcSet = nativeMethods.getAttribute.call(img, DomProcessor.getStoredAttrName('srcset'));
+            const imgSrcSet    = nativeMethods.imageSrcSetGetter.call(img);
+
+            const parsedProxyUrlSet = urlUtils.parseProxyUrlSet(imgSrcSet);
+            let numberOfNulls = 0;
+            const proxyUrlsToSet = [];
+
+            for (let i = 0; i < parsedProxyUrlSet.length; i++) {
+                if (!parsedProxyUrlSet[i][0]) {
+                    numberOfNulls++;
+                }
+
+                if (urlUtils.isSupportedProtocol(parsedProxyUrlSet[i][0]) && !urlUtils.isSpecialPage(parsedProxyUrlSet[i][0])) {
+                    proxyUrlsToSet.push([urlUtils.getProxyUrl(parsedProxyUrlSet[i][0]), parsedProxyUrlSet[i][1]].join(' '));
+                }
+            }
+
+            if (
+                storedSrcSet
+                && numberOfNulls < parsedProxyUrlSet.length
+            ) {
+                nativeMethods.setAttribute.call(img, 'srcset', proxyUrlsToSet.join(','));
                 stopPropagation(e);
             }
         }, false);

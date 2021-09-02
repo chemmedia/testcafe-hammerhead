@@ -23,6 +23,7 @@ import { XML_NAMESPACE } from './namespaces';
 import { URL_ATTR_TAGS, URL_ATTRS, TARGET_ATTR_TAGS, TARGET_ATTRS } from './attributes';
 import BaseDomAdapter from './base-dom-adapter';
 import { ASTNode } from 'parse5';
+import { ParsedUrl } from '../../typings/url';
 
 const CDATA_REG_EX                       = /^(\s)*\/\/<!\[CDATA\[([\s\S]*)\/\/\]\]>(\s)*$/;
 const HTML_COMMENT_POSTFIX_REG_EX        = /(\/\/[^\n]*|\n\s*)-->[^\n]*([\n\s]*)?$/;
@@ -141,6 +142,8 @@ export default class DomProcessor {
 
             HAS_SRC_ATTR: (el: HTMLElement) => this.isUrlAttr(el, 'src'),
 
+            HAS_SRCSET_ATTR: (el: HTMLElement) => this.isUrlAttr(el, 'srcset'),
+
             HAS_ACTION_ATTR: (el: HTMLElement) => this.isUrlAttr(el, 'action'),
 
             HAS_FORMACTION_ATTR: (el: HTMLElement) => this.isUrlAttr(el, 'formaction'),
@@ -215,6 +218,12 @@ export default class DomProcessor {
                 urlAttr:           'src',
                 targetAttr:        'target',
                 elementProcessors: [this._processTargetBlank, this._processUrlAttrs, this._processUrlJsAttr]
+            },
+            {
+                selector:          selectors.HAS_SRCSET_ATTR,
+                urlAttr:           'srcset',
+                targetAttr:        'target',
+                elementProcessors: [this._processUrlAttrs, this._processUrlJsAttr]
             },
             {
                 selector:          selectors.HAS_ACTION_ATTR,
@@ -609,29 +618,68 @@ export default class DomProcessor {
         if (!this.adapter.needToProcessUrl(elTagName, target || ''))
             return;
 
-        const resourceType         = this.getElementResourceType(el) || '';
-        const parsedResourceUrl    = parseUrl(resourceUrl);
-        const isRelativePath       = parsedResourceUrl.protocol !== 'file:' && !parsedResourceUrl.host;
-        const charsetAttrValue     = isScript && this.adapter.getAttr(el, 'charset') || '';
-        const isImgWithoutSrc      = elTagName === 'img' && resourceUrl === '';
-        const isIframeWithEmptySrc = isIframe && resourceUrl === '';
-        const parsedProxyUrl       = parseProxyUrl(urlReplacer('/'));
+        if (elTagName === 'img' && pattern.urlAttr === 'srcset') {
+            const resourceType = this.getElementResourceType(el) || '';
 
-        let isCrossDomainSrc = false;
-        let proxyUrl         = resourceUrl;
+            const rawEntries   = resourceUrl.split(',');
+            const entries: {
+                url: string,
+                size: string;
+                parsedUrl: ParsedUrl;
+                proxyUrl?: string;
+            }[] = [];
 
-        // NOTE: Only a non-relative iframe src can be cross-domain.
-        if (isIframe && !isSpecialPageUrl && !isRelativePath && parsedProxyUrl)
-            isCrossDomainSrc = !this.adapter.sameOriginCheck(parsedProxyUrl.destUrl, resourceUrl);
+            for (let i = 0; i < rawEntries.length; i++) {
+                const parts = rawEntries[i].trim().split(' ');
 
-        if ((!isSpecialPageUrl || isAnchor) && !isImgWithoutSrc && !isIframeWithEmptySrc) {
-            proxyUrl = elTagName === 'img' && !this.forceProxySrcForImage
-                ? resolveUrlAsDest(resourceUrl, urlReplacer)
-                : urlReplacer(resourceUrl, resourceType, charsetAttrValue, isCrossDomainSrc);
+                const newEntry = {
+                    url: parts[0],
+                    size: parts[1],
+                    parsedUrl: parseUrl(parts[0]),
+                    proxyUrl: parts[0],
+                };
+
+                const charsetAttrValue = isScript && this.adapter.getAttr(el, 'charset') || '';
+                const isImgWithoutSrc = elTagName === 'img' && newEntry.url === '';
+
+                if ((!isSpecialPageUrl || isAnchor) && !isImgWithoutSrc) {
+                    newEntry.proxyUrl = !this.forceProxySrcForImage
+                        ? resolveUrlAsDest(newEntry.url, urlReplacer)
+                        : urlReplacer(newEntry.url, resourceType, charsetAttrValue, false);
+                }
+
+                entries.push(newEntry);
+            }
+
+            // eslint-disable-next-line hammerhead/proto-methods
+            this.adapter.setAttr(el, storedUrlAttr, entries.map(entry => [entry.url, entry.size].join(' ')).join(', '));
+            // eslint-disable-next-line hammerhead/proto-methods
+            this.adapter.setAttr(el, pattern.urlAttr, entries.map(entry => [entry.proxyUrl, entry.size].join(' ')).join(', '));
+        } else {
+            const resourceType = this.getElementResourceType(el) || '';
+            const parsedResourceUrl = parseUrl(resourceUrl);
+            const isRelativePath = parsedResourceUrl.protocol !== 'file:' && !parsedResourceUrl.host;
+            const charsetAttrValue = isScript && this.adapter.getAttr(el, 'charset') || '';
+            const isImgWithoutSrc = elTagName === 'img' && resourceUrl === '';
+            const isIframeWithEmptySrc = isIframe && resourceUrl === '';
+            const parsedProxyUrl = parseProxyUrl(urlReplacer('/'));
+
+            let isCrossDomainSrc = false;
+            let proxyUrl = resourceUrl;
+
+            // NOTE: Only a non-relative iframe src can be cross-domain.
+            if (isIframe && !isSpecialPageUrl && !isRelativePath && parsedProxyUrl)
+                isCrossDomainSrc = !this.adapter.sameOriginCheck(parsedProxyUrl.destUrl, resourceUrl);
+
+            if ((!isSpecialPageUrl || isAnchor) && !isImgWithoutSrc && !isIframeWithEmptySrc) {
+                proxyUrl = elTagName === 'img' && !this.forceProxySrcForImage
+                    ? resolveUrlAsDest(resourceUrl, urlReplacer)
+                    : urlReplacer(resourceUrl, resourceType, charsetAttrValue, isCrossDomainSrc);
+            }
+
+            this.adapter.setAttr(el, storedUrlAttr, resourceUrl);
+            this.adapter.setAttr(el, pattern.urlAttr, proxyUrl);
         }
-
-        this.adapter.setAttr(el, storedUrlAttr, resourceUrl);
-        this.adapter.setAttr(el, pattern.urlAttr, proxyUrl);
     }
 
     _processSrcdocAttr (el: HTMLElement) {

@@ -6,13 +6,14 @@
 export const URL_ATTR_TAGS = {
     href:       ['a', 'link', 'image', 'area', 'base'],
     src:        ['img', 'embed', 'script', 'source', 'video', 'audio', 'input', 'frame', 'iframe'],
+    srcset:     ['img'],
     action:     ['form'],
     formaction: ['button', 'input'],
     manifest:   ['html'],
     data:       ['object']
 };
 
-export const URL_ATTRS = ['href', 'src', 'action', 'formaction', 'manifest', 'data'];
+export const URL_ATTRS = ['href', 'src', 'srcset', 'action', 'formaction', 'manifest', 'data'];
 
 export const TARGET_ATTR_TAGS = {
     target:     ['a', 'form', 'area', 'base'],

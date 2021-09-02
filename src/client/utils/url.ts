@@ -232,8 +232,25 @@ export let parseProxyUrl = function (proxyUrl: string) {
     return sharedUrlUtils.parseProxyUrl(proxyUrl);
 }
 
+export let parseProxyUrlSet = function (proxyUrlSet: string) {
+    const proxyUrls = proxyUrlSet.split(',');
+    const parsedProxyUrls = [];
+
+    for (let i = 0; i < proxyUrls.length; i++) {
+        const split = proxyUrls[i].trim().split(' ');
+
+        parsedProxyUrls.push([sharedUrlUtils.parseProxyUrl(split[0]), split[1]]);
+    }
+
+    return parsedProxyUrls;
+}
+
 export function overrideParseProxyUrl (func: typeof parseProxyUrl) {
     parseProxyUrl = func;
+}
+
+export function overrideParseProxyUrlSet (func: typeof parseProxyUrlSet) {
+    parseProxyUrlSet = func;
 }
 
 export function parseUrl (url: string | URL) {
